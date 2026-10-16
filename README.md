@@ -1,7 +1,17 @@
 # Maze Lab
 
+> Terminal maze generator and BFS / DFS / A* path-finding visualiser. Pure Python, standard library only.
+
+🔗 https://github.com/Ankit-core27/Maze-Lab
+
 Generates random mazes and animates BFS, DFS and A* solving them, in your terminal.
 **Pure Python 3.10+, standard library only.**
+
+```bash
+git clone https://github.com/Ankit-core27/Maze-Lab.git
+cd Maze-Lab
+python -m maze_lab
+```
 
 ```bash
 python -m maze_lab                        # animated: carve a maze, then solve with A*
