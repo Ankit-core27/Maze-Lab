@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maze Lab</title>
+<meta name="description" content="Maze generator and BFS / DFS / A* visualiser. The algorithms are real Python running in your browser.">
+<style>
+  :root { --bg:#0f1420; --panel:#171e2e; --text:#e6e9f0; --muted:#8b95ab; --accent:#4cc9f0; --wall:#1b2233; --open:#0f1420; --seen:#1f6f8b; --path:#ffd23f; --on-accent:#04141c; --start:#2ecc71; --end:#ff4d5e; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f4f6fb; --panel:#fff; --text:#1a2030; --muted:#5d6980; --accent:#0a7aa5; --wall:#2a3350; --open:#f4f6fb; --seen:#8fd3ea; --path:#f5a300; --on-accent:#fff; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,sans-serif; padding:24px 16px; }
+  main { max-width:960px; margin:0 auto; }
+  h1 { margin:0 0 4px; font-size:28px } p.sub { margin:0 0 20px; color:var(--muted) }
+  .panel { background:var(--panel); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .controls { display:flex; flex-wrap:wrap; gap:12px 16px; align-items:end }
+  label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:4px }
+  select,input[type=number] { background:var(--bg); color:var(--text); border:1px solid #3a4560; border-radius:8px; padding:7px 9px; font-size:14px; width:100% }
+  button { background:var(--accent); color:var(--on-accent); border:0; border-radius:8px; padding:9px 16px; font-weight:600; cursor:pointer; font-size:14px }
+  button.ghost { background:transparent; color:var(--text); border:1px solid #3a4560 }
+  button:disabled { opacity:.5; cursor:wait }
+  canvas { width:100%; height:auto; display:block; border-radius:8px; background:var(--open); image-rendering:pixelated }
+  #status { color:var(--muted); margin-top:10px; min-height:1.5em }
+  table { width:100%; border-collapse:collapse; margin-top:4px } th,td { text-align:right; padding:6px 8px; border-bottom:1px solid #2a3350 } th:first-child,td:first-child { text-align:left }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-top:10px }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px }
+  a { color:var(--accent) }
+</style>
+</head>
+<body>
+<main>
+  <h1>Maze Lab</h1>
+  <p class="sub">Generate a maze and watch BFS, DFS and A* solve it. The algorithms are the real Python files from the repo, running in your browser with Pyodide. <a href="https://github.com/Ankit-core27/Maze-Lab">Source on GitHub</a>.</p>
+
+  <div class="panel">
+    <div class="controls">
+      <label>Algorithm
+        <select id="algo"><option value="astar">A*</option><option value="bfs">BFS</option><option value="dfs">DFS</option></select></label>
+      <label>Rows <input id="rows" type="number" min="5" max="81" value="21"></label>
+      <label>Columns <input id="cols" type="number" min="5" max="121" value="41"></label>
+      <label>Loops (0-1) <input id="loops" type="number" min="0" max="1" step="0.05" value="0.15"></label>
+      <label>Seed <input id="seed" type="number" placeholder="random"></label>
+      <label>Speed <input id="speed" type="range" min="1" max="40" value="8"></label>
+      <button id="gen" disabled>New maze</button>
+      <button id="solve" disabled>Solve</button>
+      <button id="cmp" class="ghost" disabled>Compare all</button>
+    </div>
+    <div id="status">Loading Python...</div>
+  </div>
+
+  <div class="panel">
+    <canvas id="c" width="820" height="420"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--start)"></i>start</span><span><i style="background:var(--end)"></i>end</span>
+      <span><i style="background:var(--seen)"></i>explored</span><span><i style="background:var(--path)"></i>path</span>
+    </div>
+  </div>
+
+  <div class="panel" id="cmpbox" hidden>
+    <table><thead><tr><th>Algorithm</th><th>Path length</th><th>Tiles explored</th><th>Time (ms)</th></tr></thead><tbody id="cmpbody"></tbody></table>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $("c"), ctx = cv.getContext("2d");
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let py, maze = null, token = 0, seen = new Set(), pathSet = new Set(), cell = 10;
+
+const GLUE = `
+import json
+from maze_lab.maze import Maze
+from maze_lab.solvers import SOLVERS
+M = None
+def make(rows, cols, seed, loops):
+    global M
+    M = Maze.generate(rows, cols, seed, loops)
+    return json.dumps({"grid": M.grid, "start": M.start, "end": M.end})
+def solve(algo):
+    gen = SOLVERS[algo](M); order = []
+    while True:
+        try: order.append(next(gen))
+        except StopIteration as s:
+            path = s.value; break
+    return json.dumps({"order": order, "path": path or []})
+`;
+
+async function boot() {
+  py = await loadPyodide();
+  py.FS.mkdir("maze_lab");
+  for (const f of ["__init__", "maze", "solvers"]) {
+    const src = await (await fetch(`py/maze_lab/${f}.py`)).text();
+    py.FS.writeFile(`maze_lab/${f}.py`, src);
+  }
+  await py.runPythonAsync(GLUE);
+  ["gen", "solve", "cmp"].forEach(i => $(i).disabled = false);
+  newMaze();
+}
+
+const clamp = (v, lo, hi, d) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : d));
+
+function newMaze() {
+  token++;
+  const rows = clamp(parseInt($("rows").value), 5, 81, 21), cols = clamp(parseInt($("cols").value), 5, 121, 41);
+  const loops = clamp(parseFloat($("loops").value), 0, 1, 0.15);
+  const seed = $("seed").value === "" ? Math.floor(Math.random() * 1e6) : parseInt($("seed").value);
+  maze = JSON.parse(py.globals.get("make")(rows, cols, seed, loops));
+  seen = new Set(); pathSet = new Set();
+  $("cmpbox").hidden = true;
+  cell = Math.max(4, Math.floor(Math.min(1000 / maze.grid[0].length, 700 / maze.grid.length)));
+  cv.width = cell * maze.grid[0].length; cv.height = cell * maze.grid.length;
+  draw();
+  $("status").textContent = `Maze ${maze.grid.length}x${maze.grid[0].length}, seed ${seed}. Pick an algorithm and press Solve.`;
+}
+
+function draw(current) {
+  const [wall, open, sn, pa, st, en] = ["--wall","--open","--seen","--path","--start","--end"].map(css);
+  maze.grid.forEach((row, r) => row.forEach((t, c) => {
+    const k = r + "," + c;
+    ctx.fillStyle = t ? wall : pathSet.has(k) ? pa : seen.has(k) ? sn : open;
+    ctx.fillRect(c * cell, r * cell, cell, cell);
+  }));
+  ctx.fillStyle = st; ctx.fillRect(maze.start[1]*cell, maze.start[0]*cell, cell, cell);
+  ctx.fillStyle = en; ctx.fillRect(maze.end[1]*cell, maze.end[0]*cell, cell, cell);
+  if (current) { ctx.fillStyle = "#fff"; ctx.fillRect(current[1]*cell, current[0]*cell, cell, cell); }
+}
+
+function run(algo) {
+  const t0 = performance.now();
+  const res = JSON.parse(py.globals.get("solve")(algo));
+  return { ...res, ms: performance.now() - t0 };
+}
+
+async function solve() {
+  const my = ++token, algo = $("algo").value, label = $("algo").selectedOptions[0].text;
+  seen = new Set(); pathSet = new Set();
+  const res = run(algo);
+  for (let i = 0; i < res.order.length; i += +$("speed").value) {
+    if (my !== token) return;
+    res.order.slice(i, i + +$("speed").value).forEach(p => seen.add(p[0] + "," + p[1]));
+    draw(res.order[Math.min(i, res.order.length - 1)]);
+    $("status").textContent = `${label}: explored ${Math.min(i + +$("speed").value, res.order.length)} tiles...`;
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  res.order.forEach(p => seen.add(p[0] + "," + p[1]));
+  res.path.forEach(p => pathSet.add(p[0] + "," + p[1]));
+  draw();
+  $("status").textContent = res.path.length
+    ? `${label}: path length ${res.path.length - 1}, explored ${res.order.length} tiles.`
+    : `${label}: no path found.`;
+}
+
+function compare() {
+  $("cmpbody").innerHTML = ["bfs", "dfs", "astar"].map(a => {
+    const r = run(a);
+    return `<tr><td>${a === "astar" ? "A*" : a.toUpperCase()}</td><td>${r.path.length ? r.path.length - 1 : "-"}</td><td>${r.order.length}</td><td>${r.ms.toFixed(2)}</td></tr>`;
+  }).join("");
+  $("cmpbox").hidden = false;
+}
+
+$("gen").onclick = newMaze; $("solve").onclick = solve; $("cmp").onclick = compare;
+boot().catch(e => $("status").textContent = "Could not load Python: " + e);
+</script>
+</body>
+</html>

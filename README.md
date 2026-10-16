@@ -4,6 +4,8 @@
 
 🔗 https://github.com/Ankit-core27/Maze-Lab
 
+🌐 **Live demo:** https://ankit-core27.github.io/Maze-Lab/ (runs in your browser, no install needed)
+
 Generates random mazes and animates BFS, DFS and A* solving them, in your terminal.
 **Pure Python 3.10+, standard library only.**
 
@@ -41,6 +43,7 @@ DFS is fast but finds a path more than twice as long.
 | `maze_lab/solvers.py` | BFS (`deque`), DFS (`list` as stack), A* (`heapq`), generators with `return` values |
 | `maze_lab/render.py` | ANSI escape codes, context managers (`__enter__`/`__exit__`) |
 | `maze_lab/__main__.py` | `argparse`, wiring everything together |
+| `docs/` | Browser demo: the same Python files running in the browser via [Pyodide](https://pyodide.org), drawn on a `<canvas>` |
 | `tests/test_maze_lab.py` | `unittest`, property-style tests (e.g. "A* path length == BFS path length") |
 
 ## How it works (read in this order)
@@ -85,6 +88,20 @@ DFS is fast but finds a path more than twice as long.
 - **Testing approach**: properties instead of fixed outputs: any path is valid
   (starts/ends right, steps adjacent, no walls), BFS length == A* length <= DFS length,
   unsolvable mazes return `None`, same seed gives the same maze.
+
+## Browser demo
+
+`docs/index.html` loads Pyodide (CPython compiled to WebAssembly), copies
+`maze.py` and `solvers.py` into its virtual filesystem and calls them directly.
+The algorithms are the same code as the terminal app. JavaScript only draws the grid.
+`docs/py/maze_lab/` holds copies of those files (GitHub Pages can only serve
+from `docs/`). After changing the package, refresh them with:
+
+```bash
+cp maze_lab/{__init__,maze,solvers}.py docs/py/maze_lab/
+```
+
+Run it locally with `python -m http.server -d docs` and open http://localhost:8000.
 
 ## Ideas to extend it (great to mention in an interview)
 
