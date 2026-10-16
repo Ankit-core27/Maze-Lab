@@ -90,7 +90,9 @@ async function boot() {
   py = await loadPyodide();
   py.FS.mkdir("maze_lab");
   for (const f of ["__init__", "maze", "solvers"]) {
-    const src = await (await fetch(`py/maze_lab/${f}.py`)).text();
+    const res = await fetch(`py/maze_lab/${f}.py`);
+    if (!res.ok) throw new Error(`could not download ${f}.py (HTTP ${res.status})`);
+    const src = await res.text();
     py.FS.writeFile(`maze_lab/${f}.py`, src);
   }
   await py.runPythonAsync(GLUE);
